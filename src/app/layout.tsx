@@ -31,9 +31,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${poppins.variable} ${notoSansDevanagari.variable} ${alatsi.variable} antialiased bg-background text-foreground font-poppins`}
+        suppressHydrationWarning
       >
         {children}
       </body>

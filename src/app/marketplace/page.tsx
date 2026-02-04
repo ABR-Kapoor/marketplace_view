@@ -2,6 +2,9 @@ import { createClient } from '@/utils/supabase/server'
 import { MedicineCard } from '@/components/MedicineCard'
 import { Search, Filter, Sparkles, ShieldCheck, Truck, Clock, TrendingUp, ChevronRight, Pill } from 'lucide-react'
 import { redirect } from 'next/navigation'
+import { RealtimeMedicines } from '@/components/RealtimeMedicines'
+import { RefreshButton } from '@/components/RefreshButton'
+import { SearchBar } from '@/components/SearchBar'
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 
 export const dynamic = 'force-dynamic'
@@ -22,21 +25,53 @@ export default async function MarketplacePage(props: {
     const q = searchParams.q || ''
     const category = searchParams.category || 'All'
 
-    let query = supabase.from('medicines').select('*')
+    let medicines: any[] | null = null;
 
     if (q) {
-        query = query.ilike('name', `%${q}%`)
-    }
-    if (category && category !== 'All') {
-        query = query.eq('category', category)
+        console.log(`[Page] Attempting fuzzy search for: ${q}`);
+        // Try RPC first for "almost correct" spelling
+        const { data: fuzzyData, error: fuzzyError } = await supabase
+            .rpc('search_medicines', { search_term: q });
+        
+        if (!fuzzyError && fuzzyData) {
+             console.log(`[Page] Fuzzy search successful. Found ${fuzzyData.length} matches.`);
+             // Apply category filter in memory since RPC returned all matches
+             if (category && category !== 'All') {
+                 medicines = fuzzyData.filter((m: any) => m.category === category);
+             } else {
+                 medicines = fuzzyData;
+             }
+        } else {
+            console.warn(`[Page] Fuzzy search unavailable (${fuzzyError?.message}), falling back to standard search.`);
+        }
     }
 
-    const { data: medicines } = await query
+    // Fallback or Initial Load if fuzzy search didn't run or failed
+    if (!medicines) {
+        let query = supabase.from('medicines').select('*')
+
+        if (q) {
+            query = query.ilike('name', `%${q}%`)
+        }
+        if (category && category !== 'All') {
+            query = query.eq('category', category)
+        }
+
+        // default sort
+        query = query.order('name')
+
+        console.log(`[Page] Fetching medicines (Standard)... q=${q}, category=${category}`);
+        const { data } = await query
+        medicines = data;
+    }
+    
+    console.log(`[Page] Final result count: ${medicines?.length || 0}`);
 
     const categories = ['All', 'Pain Relief', 'Antibiotics', 'Allergy', 'Vitamins', 'First Aid']
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-[#f0fdf9] via-white to-[#e6faf5]">
+            <RealtimeMedicines />
             {/* Background Elements */}
             <div className="fixed inset-0 -z-10 overflow-hidden">
                 <div className="absolute top-0 left-1/4 w-96 h-96 bg-gradient-to-r from-emerald-200/20 to-teal-100/15 rounded-full blur-3xl"></div>
@@ -45,7 +80,7 @@ export default async function MarketplacePage(props: {
             </div>
 
             {/* Main Content Container */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 pb-6 md:pt-4 md:pb-10">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-6 md:pb-10">
                 {/* Hero Section */}
                 <div className="relative mb-10 md:mb-14">
                     {/* Glassmorphism Container - Increased Intensity */}
@@ -78,36 +113,7 @@ export default async function MarketplacePage(props: {
                                     </p>
                                 </div>
 
-                                {/* Enhanced Search Bar */}
-                                <div className="w-full lg:w-auto lg:min-w-[480px]">
-                                    <div className="relative group">
-                                        <div className="absolute -inset-1 bg-gradient-to-r from-emerald-400/30 to-teal-400/20 rounded-2xl blur-lg opacity-0 group-focus-within:opacity-100 transition-opacity duration-500"></div>
-                                        <div className="relative">
-                                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                                <Search className="h-5 w-5 text-gray-500 group-focus-within:text-emerald-600 transition-all duration-300" />
-                                            </div>
-                                            <input
-                                                type="text"
-                                                name="q"
-                                                defaultValue={q}
-                                                placeholder="Search medicines, brands, or symptoms..."
-                                                className="w-full pl-12 pr-4 py-4 bg-white/90 backdrop-blur-sm border border-gray-200/60 rounded-2xl text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-3 focus:ring-emerald-400/40 focus:border-transparent shadow-lg shadow-emerald-100/20 transition-all duration-300"
-                                            />
-                                            <div className="absolute inset-y-0 right-0 pr-4 flex items-center">
-                                                <button
-                                                    type="button"
-                                                    className="p-1.5 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors duration-200"
-                                                    aria-label="Open filters"
-                                                >
-                                                    <Filter className="h-4 w-4 text-emerald-600" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <p className="text-xs text-gray-400 mt-2 ml-1.5">
-                                        Press Enter to search • Use filters below
-                                    </p>
-                                </div>
+                                <SearchBar initialQuery={q} />
                             </div>
 
                             {/* Trust Indicators */}
@@ -150,7 +156,7 @@ export default async function MarketplacePage(props: {
 
                     {/* Scrollable Category Chips */}
                     <div className="relative">
-                        <div className="flex gap-3 pb-4 overflow-x-auto scrollbar-hide">
+                        <div className="flex gap-3 pb-4 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide md:scrollbar-default">
                             {categories.map((c) => (
                                 <a
                                     key={c}
@@ -216,12 +222,7 @@ export default async function MarketplacePage(props: {
                                         <Sparkles className="h-4 w-4" />
                                         Clear All Filters
                                     </a>
-                                    <button
-                                        className="inline-flex items-center justify-center gap-2 bg-white/80 backdrop-blur-sm text-emerald-700 font-bold px-8 py-4 rounded-full border border-emerald-200 hover:bg-emerald-50/80 hover:shadow-lg hover:shadow-emerald-100/30 transition-all duration-300 active:scale-95"
-                                        onClick={() => window.location.reload()}
-                                    >
-                                        Refresh Page
-                                    </button>
+                                    <RefreshButton />
                                 </div>
                             </div>
                         </div>

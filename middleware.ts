@@ -2,7 +2,7 @@ import { withAuth } from "@kinde-oss/kinde-auth-nextjs/middleware";
 
 export default withAuth(
     async function middleware(req: any) {
-        // Custom logic can be added here if needed
+        console.log(`[${new Date().toISOString()}] ${req.method} ${req.nextUrl.pathname}`);
     },
     {
         isReturnToCurrentPage: true,

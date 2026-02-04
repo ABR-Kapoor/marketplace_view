@@ -33,13 +33,18 @@ export async function GET(request: NextRequest) {
     }
 
     // default sort
+    // default sort
     query = query.order('name')
+
+    console.log(`[API] Fetching medicines... q=${queryText || ''}, category=${category || 'All'}`);
 
     const { data, error } = await query
 
     if (error) {
+        console.error(`[API] Error fetching medicines:`, error.message);
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    console.log(`[API] Found ${data?.length || 0} medicines`);
     return NextResponse.json(data)
 }

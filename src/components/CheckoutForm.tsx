@@ -155,7 +155,7 @@ export function CheckoutForm({ total }: { total: number }) {
                         disabled={loading || !address}
                         className="w-full py-4 btn-primary rounded-xl font-bold text-lg flex items-center justify-center gap-2 transform disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                     >
-                        {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : `Pay with Razorpay`}
+                        {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : `Pay Now`}
                     </button>
 
                     <div className="mt-6 text-center">
