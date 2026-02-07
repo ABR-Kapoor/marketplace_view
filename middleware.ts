@@ -6,7 +6,16 @@ export default withAuth(
     },
     {
         isReturnToCurrentPage: true,
-        publicPaths: ["/", "/api/auth/:path*", "/auth-callback", "/_next/:path*", "/favicon.ico", "/images/:path*"]
+        publicPaths: [
+            "/",
+            "/api/auth/:path*",
+            "/auth-callback",
+            "/_next/:path*",
+            "/favicon.ico",
+            "/images/:path*",
+            "/marketplace", // Allow browsing marketplace without login
+            "/logo_transparent.png" // Allow logo access
+        ]
     }
 );
 

@@ -68,6 +68,7 @@ export function CheckoutForm({ total }: { total: number }) {
                                 razorpay_order_id: response.razorpay_order_id,
                                 razorpay_payment_id: response.razorpay_payment_id,
                                 razorpay_signature: response.razorpay_signature,
+                                order_id: data.dbOrderId // Pass the DB order ID
                             }),
                         })
 
@@ -118,7 +119,7 @@ export function CheckoutForm({ total }: { total: number }) {
                                 required
                                 value={address}
                                 onChange={(e) => setAddress(e.target.value)}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white/50 backdrop-blur-sm transition-all resize-none"
+                                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white/50 backdrop-blur-sm transition-all resize-none text-gray-900"
                                 placeholder="123 Health St, Medical City, CA"
                                 rows={3}
                             />

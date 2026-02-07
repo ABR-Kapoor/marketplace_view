@@ -17,35 +17,59 @@ export async function POST(req: NextRequest) {
         const user = await syncUserToDatabase(kindeUser);
 
         const body = await req.json();
-        const { amount, currency = "INR", items, description } = body;
-        // Note: In a real app, 'amount' should be calculated on server from 'items' to prevent tampering.
-        // For this implementation, we assume the frontend sends the correct amount or we blindly trust it for now 
-        // (though securely we should calculate it). Let's trust it for this prototype step but note it.
+        const { shipping_address } = body; // Address from frontend
 
-        if (!amount) {
-            return NextResponse.json({ error: "Amount is required" }, { status: 400 });
+        // 1. Fetch Cart
+        const { data: cart, error: cartError } = await supabaseAdmin
+            .from('carts')
+            .select('*, items:cart_items(*, medicine:medicines(*))')
+            .eq('user_id', user.uid)
+            .single();
+
+        if (cartError || !cart || !cart.items || cart.items.length === 0) {
+            return NextResponse.json({ error: "Cart is empty" }, { status: 400 });
         }
 
-        // 1. Create Razorpay Order
+        // 2. Calculate Total Amount
+        let totalAmount = 0;
+        const orderItems = [];
+
+        for (const item of cart.items) {
+            const price = item.medicine.price;
+            totalAmount += price * item.quantity;
+            orderItems.push({
+                medicine_id: item.medicine.id,
+                quantity: item.quantity,
+                price_at_purchase: price
+            });
+        }
+
+        if (totalAmount <= 0) {
+            return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
+        }
+
+        // 3. Create Razorpay Order
         const options = {
-            amount: Math.round(amount * 100), // Razorpay expects amount in paise
-            currency,
+            amount: Math.round(totalAmount * 100), // Razorpay expects amount in paise
+            currency: "INR",
             receipt: `rcpt_${Date.now().toString().slice(-8)}`,
             notes: {
                 userId: user.uid,
             },
         };
 
-        const order = await razorpay.orders.create(options);
+        const razorpayOrder = await razorpay.orders.create(options);
 
-        // 2. Create Order in DB (orders table)
+        // 4. Create Order in DB (orders table)
         const { data: dbOrder, error: orderError } = await supabaseAdmin
             .from("orders")
             .insert({
                 user_id: user.uid,
-                status: "pending",
-                total_amount: amount,
-                shipping_address: {}, // Placeholder, should come from request
+                status: "pending", // Initially pending, updated to PENDING_DELIVERY after payment
+                total_amount: totalAmount,
+                shipping_address: shipping_address || {},
+                customer_name: user.name,
+                customer_phone: user.phone
             })
             .select()
             .single();
@@ -55,7 +79,23 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Failed to create order" }, { status: 500 });
         }
 
-        // 3. Create Transaction in DB (finance_transactions table)
+        // 5. Create Order Items
+        const itemsToInsert = orderItems.map(item => ({
+            order_id: dbOrder.id,
+            ...item
+        }));
+
+        const { error: itemsError } = await supabaseAdmin
+            .from("order_items")
+            .insert(itemsToInsert);
+
+        if (itemsError) {
+            console.error("Error creating order items:", itemsError);
+            // Consider rolling back order? Or return error.
+            return NextResponse.json({ error: "Failed to create order items" }, { status: 500 });
+        }
+
+        // 6. Create Transaction in DB (finance_transactions table)
         // Fetch pid first
         const { data: patientData, error: patientError } = await supabaseAdmin
             .from('patients')
@@ -65,6 +105,11 @@ export async function POST(req: NextRequest) {
 
         if (patientError || !patientData) {
             console.error("Error getting patient:", patientError);
+            // This is critical if we need finance transactions
+            // But maybe we can proceed without it for now or create a dummy transaction?
+            // Let's assume patient exists because syncUserToDatabase handles user creation, 
+            // but syncUserToDatabase might not create 'patients' record unless the trigger fired.
+            // The trigger 'auto_insert_user_role' handles it.
             return NextResponse.json({ error: "Patient record not found" }, { status: 500 });
         }
 
@@ -72,32 +117,32 @@ export async function POST(req: NextRequest) {
             .from("finance_transactions")
             .insert({
                 pid: patientData.pid,
-                transaction_type: "consultation", // Using existing enum
-                amount: amount,
-                currency,
+                transaction_type: "consultation", // Or better "purchase" if enum supports it?
+                amount: totalAmount,
+                currency: "INR",
                 status: "pending",
-                razorpay_order_id: order.id,
-                description: description || "Marketplace Purchase",
+                razorpay_order_id: razorpayOrder.id,
+                description: `Marketplace Order #${dbOrder.order_number || dbOrder.id}`,
             });
 
         if (txInsertError) {
-            // If duplicate key error (which can happen if user retries rapidly or Razorpay returns same order ID),
-            // checks if it already exists and if so, return success (idempotency).
             if (txInsertError.code === '23505') {
                 console.warn("Transaction already exists for this order, continuing.");
             } else {
                 console.error("Error creating transaction:", txInsertError);
-                return NextResponse.json({ error: "Failed to create transaction record" }, { status: 500 });
+                // Non-blocking for order flow, but logged
             }
         }
+
         return NextResponse.json({
-            id: order.id,
-            currency: order.currency,
-            amount: order.amount,
-            dbOrderId: dbOrder.id, // Pass back internal order ID if needed
+            id: razorpayOrder.id,
+            currency: razorpayOrder.currency,
+            amount: razorpayOrder.amount,
+            dbOrderId: dbOrder.id, // Pass back internal order ID
         });
-    } catch (error) {
+
+    } catch (error: any) {
         console.error("Error in create-order:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return NextResponse.json({ error: error.message || "Internal Server Error" }, { status: 500 });
     }
 }

@@ -1,26 +1,51 @@
-import { Navbar } from '@/components/Navbar'
-import { getCartCount } from '@/utils/cart'
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
+import { redirect } from "next/navigation";
+import { createClient } from '@supabase/supabase-js';
+import { Navbar } from '@/components/Navbar';
 
-export const dynamic = 'force-dynamic'
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export default async function MarketplaceLayout({
-    children,
+  children,
 }: {
-    children: React.ReactNode
+  children: React.ReactNode;
 }) {
-    const cartCount = await getCartCount()
-    const { getUser } = getKindeServerSession();
-    const user = await getUser();
+  const { isAuthenticated, getUser } = getKindeServerSession();
+  
+  const authenticated = await isAuthenticated();
+  const user = authenticated ? await getUser() : null;
 
-    const userName = user ? `${user.given_name || ''} ${user.family_name || ''}`.trim() : undefined;
+  // Only check role if user is authenticated
+  if (authenticated && user?.id) {
+    const { data: userData, error } = await supabase
+      .from('users')
+      .select('role')
+      .eq('auth_id', user.id)
+      .single();
 
-    return (
-        <div className="min-h-screen bg-gray-50 text-gray-900 font-sans selection:bg-teal-100 selection:text-teal-900">
-            <Navbar cartCount={cartCount} userName={userName} />
-            <main className="container mx-auto px-4 py-8">
-                {children}
-            </main>
-        </div>
-    )
+    if (error) {
+      console.error('Error fetching user role:', error);
+      // Don't redirect, just log the error
+    }
+
+    // Block doctors and clinics from accessing marketplace
+    if (userData?.role && userData.role !== 'patient') {
+      console.log(`Blocking ${userData.role} from marketplace access`);
+      redirect('/unauthorized');
+    }
+  }
+
+  return (
+    <>
+      <Navbar 
+        userName={user ? `${user.given_name || ''} ${user.family_name || ''}`.trim() || user.email || 'Guest' : undefined} 
+        userImage={user?.picture || undefined}
+        isAuthenticated={authenticated}
+      />
+      {children}
+    </>
+  );
 }

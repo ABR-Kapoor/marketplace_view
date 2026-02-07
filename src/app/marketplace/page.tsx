@@ -14,13 +14,8 @@ export default async function MarketplacePage(props: {
 }) {
     const searchParams = await props.searchParams
 
-    // Verify auth - redirect to login if not authenticated
-    const { isAuthenticated } = getKindeServerSession();
-    if (!(await isAuthenticated())) {
-        redirect('/api/auth/login')
-    }
-
     const supabase = await createClient()
+
 
     const q = searchParams.q || ''
     const category = searchParams.category || 'All'

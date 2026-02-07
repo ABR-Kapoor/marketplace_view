@@ -79,7 +79,7 @@ export function CartList({ initialCart }: { initialCart: Cart | null }) {
                         <div className="flex items-center gap-3 bg-gray-50/80 rounded-xl p-1.5 border border-gray-100">
                             <button
                                 onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                className="w-8 h-8 flex items-center justify-center rounded-lg bg-white shadow-sm hover:text-emerald-600 disabled:opacity-50 transition-colors"
+                                className="w-8 h-8 flex items-center justify-center rounded-lg bg-white text-gray-700 shadow-sm hover:text-emerald-600 disabled:opacity-50 transition-colors"
                                 disabled={loading}
                             >
                                 <Minus className="h-4 w-4" />
@@ -87,7 +87,7 @@ export function CartList({ initialCart }: { initialCart: Cart | null }) {
                             <span className="w-5 text-center font-bold text-sm text-gray-700">{item.quantity}</span>
                             <button
                                 onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                className="w-8 h-8 flex items-center justify-center rounded-lg bg-white shadow-sm hover:text-emerald-600 disabled:opacity-50 transition-colors"
+                                className="w-8 h-8 flex items-center justify-center rounded-lg bg-white text-gray-700 shadow-sm hover:text-emerald-600 disabled:opacity-50 transition-colors"
                                 disabled={loading || item.quantity >= (item.medicine?.stock_quantity || 0)}
                             >
                                 <Plus className="h-4 w-4" />

@@ -5,9 +5,11 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature, order_id } = body;
 
-        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+        console.log("Verifying payment for Order ID:", order_id);
+
+        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !order_id) {
             return NextResponse.json({ error: "Missing required parameters" }, { status: 400 });
         }
 
@@ -43,60 +45,71 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Failed to update transaction" }, { status: 500 });
         }
 
-        // 3. Update Orders (Mark as paid/PENDING_DELIVERY)
-        // We don't have a direct link in orders table to razorpay_order_id in schema, 
-        // but we can infer it or we should have stored it? 
-        // Wait, in create-order we didn't store razorpay_order_id in 'orders' table. 
-        // Schema for 'orders': id, user_id, status, total_amount, shipping_address.
-        // We need to link 'orders' to this transaction.
-        // 'finance_transactions' has 'aid' (appointment id) but not 'order_id'?
-        // Let's look at schema again. 
-        // Schema: finance_transactions (pid, aid, did). No order_id foreign key.
-        // BUT 'receipts' links to 'finance_transactions'.
-        // And 'receipts' has... transaction_id. 
-        // Schema issue: linking finance_transaction to the 'order'. 
-        // The schema seems doctor-centric (aid, did). 
-        // However, for marketplace, we might need to rely on `user_id` and timestamp logic or add a column.
+        // 3. Update Order Status to PENDING_DELIVERY and set paid
+        const { data: orderData, error: orderError } = await supabaseAdmin
+            .from("orders")
+            .update({
+                status: "PENDING_DELIVERY", // Crucial for Admin visibility
+                updated_at: new Date().toISOString()
+                // We could store payment info here too if schema supported it
+            })
+            .eq("id", order_id)
+            .select()
+            .single();
 
-        // WORKAROUND: In `create-order`, we should probably store the order_id in description or use a join.
-        // Alternatively, we can assume this is fine for now and just update the Order if we had passed the order ID to the frontend 
-        // and it passed it back here? No, verification usually just sends razorpay params.
-
-        // Let's check `finance_transactions`. It has `transaction_id`.
-        // Maybe we can update the Order status if we find an order created around same time for this user? 
-        // This is brittle. 
-        // Better approach: We can't easily update 'orders' table without a link. 
-        // BUT, the user prompt said "refer this database". 
-        // `orders` table exists. 
-        // usage: `orders` -> `order_items` -> `medicines`.
-        // We skipped filling `order_items` in create-order!
-
-        // Let's refine. For now, we successfully marked the transaction as paid.
-        // We will attempt to update the 'receipts' table as requested.
-
-        // 4. Generate Receipt
-        const { error: receiptError } = await supabaseAdmin
-            .from("receipts")
-            .insert({
-                transaction_id: txData.transaction_id,
-                pid: txData.pid,
-                did: txData.did || txData.pid, // Fallback if no doctor
-                patient_name: "Patient", // Should fetch name
-                doctor_name: "Marketplace",
-                consultation_fee: txData.amount,
-                total_amount: txData.amount,
-                payment_method: "razorpay",
-                razorpay_payment_id: razorpay_payment_id
-            });
-
-        if (receiptError) {
-            console.error("Error creating receipt:", receiptError);
-            // Continue, as payment is successful
+        if (orderError) {
+            console.error("Error updating order status:", orderError);
+            return NextResponse.json({ error: "Failed to update order status" }, { status: 500 });
         }
 
-        return NextResponse.json({ success: true, message: "Payment verified" });
-    } catch (error) {
+        // 4. Clear User's Cart
+        if (orderData && orderData.user_id) {
+            const { data: cartData } = await supabaseAdmin
+                .from('carts')
+                .select('id')
+                .eq('user_id', orderData.user_id)
+                .single();
+
+            if (cartData) {
+                const { error: clearCartError } = await supabaseAdmin
+                    .from('cart_items')
+                    .delete()
+                    .eq('cart_id', cartData.id);
+
+                if (clearCartError) {
+                    console.error("Error clearing cart:", clearCartError);
+                } else {
+                    console.log("Cart cleared for user:", orderData.user_id);
+                }
+            }
+        }
+
+        // 5. Generate Receipt
+        // Fallback for PID/DID if transaction doesn't have them populated correctly or needing lookup
+        // But txData has PID.
+        if (txData) {
+            const { error: receiptError } = await supabaseAdmin
+                .from("receipts")
+                .insert({
+                    transaction_id: txData.transaction_id,
+                    pid: txData.pid,
+                    did: txData.did || txData.pid, // Fallback
+                    patient_name: "Patient", // Should fetch name ideally
+                    doctor_name: "AuraMart Marketplace",
+                    consultation_fee: txData.amount, // Using amount as fee for now
+                    total_amount: txData.amount,
+                    payment_method: "razorpay",
+                    razorpay_payment_id: razorpay_payment_id
+                });
+
+            if (receiptError) {
+                console.error("Error creating receipt:", receiptError);
+            }
+        }
+
+        return NextResponse.json({ success: true, message: "Payment verified and order confirmed" });
+    } catch (error: any) {
         console.error("Error in verification:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return NextResponse.json({ error: error.message || "Internal Server Error" }, { status: 500 });
     }
 }
