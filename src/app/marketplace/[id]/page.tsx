@@ -1,4 +1,4 @@
-import { createClient } from '@/utils/supabase/server'
+import sql from '@/lib/db'
 import { AddToCartButton } from '@/components/AddToCartButton'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -8,13 +8,7 @@ export const dynamic = 'force-dynamic'
 
 export default async function MedicineDetailPage(props: { params: Promise<{ id: string }> }) {
     const params = await props.params
-    const supabase = await createClient()
-
-    const { data: medicine } = await supabase
-        .from('medicines')
-        .select('*')
-        .eq('id', params.id)
-        .single()
+    const [medicine] = await sql`SELECT * FROM medicines WHERE id = ${params.id}`;
 
     if (!medicine) {
         return (

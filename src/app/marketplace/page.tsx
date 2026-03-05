@@ -1,4 +1,4 @@
-import { createClient } from '@/utils/supabase/server'
+import sql from '@/lib/db'
 import { MedicineCard } from '@/components/MedicineCard'
 import { Search, Filter, Sparkles, ShieldCheck, Truck, Clock, TrendingUp, ChevronRight, Pill } from 'lucide-react'
 import { redirect } from 'next/navigation'
@@ -14,50 +14,42 @@ export default async function MarketplacePage(props: {
 }) {
     const searchParams = await props.searchParams
 
-    const supabase = await createClient()
-
-
     const q = searchParams.q || ''
     const category = searchParams.category || 'All'
 
     let medicines: any[] | null = null;
 
     if (q) {
-        console.log(`[Page] Attempting fuzzy search for: ${q}`);
-        // Try RPC first for "almost correct" spelling
-        const { data: fuzzyData, error: fuzzyError } = await supabase
-            .rpc('search_medicines', { search_term: q });
+        console.log(`[Page] Attempting keyword search for: ${q}`);
+        // Basic ILIKE search instead of RPC
+        const fuzzyData = await sql`SELECT * FROM medicines WHERE name ILIKE ${'%' + q + '%'}`;
         
-        if (!fuzzyError && fuzzyData) {
-             console.log(`[Page] Fuzzy search successful. Found ${fuzzyData.length} matches.`);
-             // Apply category filter in memory since RPC returned all matches
+        if (fuzzyData && fuzzyData.length > 0) {
+             console.log(`[Page] Search successful. Found ${fuzzyData.length} matches.`);
              if (category && category !== 'All') {
                  medicines = fuzzyData.filter((m: any) => m.category === category);
              } else {
                  medicines = fuzzyData;
              }
-        } else {
-            console.warn(`[Page] Fuzzy search unavailable (${fuzzyError?.message}), falling back to standard search.`);
         }
     }
 
-    // Fallback or Initial Load if fuzzy search didn't run or failed
+    // Fallback or Initial Load if search didn't run or found nothing
     if (!medicines) {
-        let query = supabase.from('medicines').select('*')
-
-        if (q) {
-            query = query.ilike('name', `%${q}%`)
-        }
+        console.log(`[Page] Fetching medicines... q=${q}, category=${category}`);
         if (category && category !== 'All') {
-            query = query.eq('category', category)
+            if (q) {
+                medicines = await sql`SELECT * FROM medicines WHERE category = ${category} AND name ILIKE ${'%' + q + '%'} ORDER BY name ASC`;
+            } else {
+                medicines = await sql`SELECT * FROM medicines WHERE category = ${category} ORDER BY name ASC`;
+            }
+        } else {
+            if (q) {
+                medicines = await sql`SELECT * FROM medicines WHERE name ILIKE ${'%' + q + '%'} ORDER BY name ASC`;
+            } else {
+                medicines = await sql`SELECT * FROM medicines ORDER BY name ASC`;
+            }
         }
-
-        // default sort
-        query = query.order('name')
-
-        console.log(`[Page] Fetching medicines (Standard)... q=${q}, category=${category}`);
-        const { data } = await query
-        medicines = data;
     }
     
     console.log(`[Page] Final result count: ${medicines?.length || 0}`);

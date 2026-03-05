@@ -1,50 +1,50 @@
-import { createClient } from '@/utils/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import sql from '@/lib/db';
 
 export async function GET(request: NextRequest) {
-    const supabase = await createClient()
+    try {
+        const searchParams = request.nextUrl.searchParams
+        const queryText = searchParams.get('q')
+        const category = searchParams.get('category')
+        const stock = searchParams.get('stock')
+        const minPrice = searchParams.get('minPrice')
+        const maxPrice = searchParams.get('maxPrice')
 
-    // Optional: Check auth
-    // const { data: { user } } = await supabase.auth.getUser()
+        let conditions = [];
+        let params: any[] = [];
+        let paramIndex = 1;
 
-    const searchParams = request.nextUrl.searchParams
-    const queryText = searchParams.get('q')
-    const category = searchParams.get('category')
-    const stock = searchParams.get('stock') // 'in_stock'
-    const minPrice = searchParams.get('minPrice')
-    const maxPrice = searchParams.get('maxPrice')
+        if (queryText) {
+            conditions.push(`name ILIKE $${paramIndex++}`);
+            params.push(`%${queryText}%`);
+        }
+        if (category && category !== 'All') {
+            conditions.push(`category = $${paramIndex++}`);
+            params.push(category);
+        }
+        if (stock === 'true') {
+            conditions.push(`stock_quantity > 0`);
+        }
+        if (minPrice) {
+            conditions.push(`price >= $${paramIndex++}`);
+            params.push(minPrice);
+        }
+        if (maxPrice) {
+            conditions.push(`price <= $${paramIndex++}`);
+            params.push(maxPrice);
+        }
 
-    let query = supabase.from('medicines').select('*')
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+        const queryString = `SELECT * FROM medicines ${whereClause} ORDER BY name ASC`;
 
-    if (queryText) {
-        query = query.ilike('name', `%${queryText}%`)
-    }
-    if (category && category !== 'All') {
-        query = query.eq('category', category)
-    }
-    if (stock === 'true') {
-        query = query.gt('stock_quantity', 0)
-    }
-    if (minPrice) {
-        query = query.gte('price', minPrice)
-    }
-    if (maxPrice) {
-        query = query.lte('price', maxPrice)
-    }
+        console.log(`[API] Fetching medicines... q=${queryText || ''}, category=${category || 'All'}`);
 
-    // default sort
-    // default sort
-    query = query.order('name')
+        const data = await sql.unsafe(queryString, params);
 
-    console.log(`[API] Fetching medicines... q=${queryText || ''}, category=${category || 'All'}`);
-
-    const { data, error } = await query
-
-    if (error) {
+        console.log(`[API] Found ${data?.length || 0} medicines`);
+        return NextResponse.json(data || [])
+    } catch (error: any) {
         console.error(`[API] Error fetching medicines:`, error.message);
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
-
-    console.log(`[API] Found ${data?.length || 0} medicines`);
-    return NextResponse.json(data)
 }

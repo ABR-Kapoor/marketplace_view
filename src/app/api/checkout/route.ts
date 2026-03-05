@@ -1,73 +1,54 @@
-import { createClient } from '@/utils/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/utils/auth'
+import sql from '@/lib/db';
 
 export async function POST(request: NextRequest) {
-    const user = await getCurrentUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    try {
+        const user = await getCurrentUser()
+        if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const supabase = await createClient()
-    const { shippingAddress } = await request.json()
+        const { shippingAddress } = await request.json()
 
-    // 1. Get Cart
-    const { data: cart } = await supabase
-        .from('carts')
-        .select('*, items:cart_items(*, medicine:medicines(*))') // inner join logic
-        .eq('user_id', user.uid)
-        .single()
+        const [cart] = await sql`SELECT id FROM carts WHERE user_id = ${user.uid}`;
+        if (!cart) return NextResponse.json({ error: 'Cart is empty' }, { status: 400 });
 
-    if (!cart || !cart.items || cart.items.length === 0) {
-        return NextResponse.json({ error: 'Cart is empty' }, { status: 400 })
-    }
+        const cartItems = await sql`
+            SELECT ci.id, ci.quantity, ci.medicine_id, m.name as m_name, m.price as m_price, m.stock_quantity as m_stock_quantity 
+            FROM cart_items ci JOIN medicines m ON ci.medicine_id = m.id WHERE ci.cart_id = ${cart.id}
+        `;
 
-    // 2. Validate Stock & Calculate Total
-    let totalAmount = 0
-    for (const item of cart.items) {
-        if (!item.medicine) {
-            return NextResponse.json({ error: 'Invalid medicine in cart' }, { status: 400 })
+        if (!cartItems || cartItems.length === 0) {
+            return NextResponse.json({ error: 'Cart is empty' }, { status: 400 })
         }
-        if (item.medicine.stock_quantity < item.quantity) {
-            return NextResponse.json({ error: `Not enough stock for ${item.medicine.name}` }, { status: 400 })
+
+        let totalAmount = 0
+        for (const item of cartItems) {
+            if (item.m_stock_quantity < item.quantity) {
+                return NextResponse.json({ error: `Not enough stock for ${item.m_name}` }, { status: 400 })
+            }
+            totalAmount += item.m_price * item.quantity
         }
-        totalAmount += item.medicine.price * item.quantity
+
+        const [order] = await sql`
+            INSERT INTO orders (user_id, status, total_amount, shipping_address)
+            VALUES (${user.uid}, 'paid', ${totalAmount}, ${shippingAddress})
+            RETURNING id
+        `;
+
+        for (const item of cartItems) {
+            await sql`
+                INSERT INTO order_items (order_id, medicine_id, quantity, price_at_purchase)
+                VALUES (${order.id}, ${item.medicine_id}, ${item.quantity}, ${item.m_price})
+            `;
+            const newStock = Math.max(0, item.m_stock_quantity - item.quantity);
+            await sql`UPDATE medicines SET stock_quantity = ${newStock} WHERE id = ${item.medicine_id}`;
+        }
+
+        await sql`DELETE FROM cart_items WHERE cart_id = ${cart.id}`;
+
+        return NextResponse.json({ success: true, orderId: order.id })
+    } catch (error: any) {
+        console.error('Checkout error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 })
     }
-
-    // 3. Create Order
-    const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-            user_id: user.uid,
-            status: 'paid', // Dummy payment success
-            total_amount: totalAmount,
-            shipping_address: shippingAddress
-        })
-        .select()
-        .single()
-
-    if (orderError) return NextResponse.json({ error: orderError.message }, { status: 500 })
-
-    // 4. Create Order Items
-    const orderItems = cart.items.map((item: any) => ({
-        order_id: order.id,
-        medicine_id: item.medicine_id,
-        quantity: item.quantity,
-        price_at_purchase: item.medicine.price
-    }))
-
-    const { error: itemsError } = await supabase.from('order_items').insert(orderItems)
-    if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 })
-
-    // 5. Update Stock
-    for (const item of cart.items) {
-        const newStock = Math.max(0, item.medicine.stock_quantity - item.quantity)
-        await supabase
-            .from('medicines')
-            .update({ stock_quantity: newStock })
-            .eq('id', item.medicine_id)
-    }
-
-    // 6. Clear Cart
-    await supabase.from('cart_items').delete().eq('cart_id', cart.id)
-
-    return NextResponse.json({ success: true, orderId: order.id })
 }

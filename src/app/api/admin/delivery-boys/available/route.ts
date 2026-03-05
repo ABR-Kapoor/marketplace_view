@@ -1,41 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase';
+import sql from '@/lib/db';
 
 export async function GET(request: NextRequest) {
     try {
-        const { data: deliveryBoys, error } = await supabaseAdmin
-            .from('delivery_agents')
-            .select(`
-        id,
-        name,
-        email,
-        phone,
-        total_deliveries_completed,
-        average_rating,
-        is_available,
-        is_active
-      `)
-            .eq('is_active', true)
-            .order('is_available', { ascending: false })
-            .order('total_deliveries_completed', { ascending: true });
+        const deliveryBoys = await sql`
+            SELECT id, name, email, phone, total_deliveries_completed, average_rating, is_available, is_active
+            FROM delivery_agents
+            WHERE is_active = true
+            ORDER BY is_available DESC, total_deliveries_completed ASC
+        `;
 
-        if (error) {
-            console.error('Error fetching delivery boys:', error);
-            throw error;
-        }
-
-        // Count active deliveries for each delivery boy
         const deliveryBoysWithStats = await Promise.all(
             (deliveryBoys || []).map(async (db) => {
-                const { count } = await supabaseAdmin
-                    .from('orders')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('assigned_to_delivery_boy_id', db.id)
-                    .in('status', ['ASSIGNED', 'ACCEPTED_FOR_DELIVERY', 'OUT_FOR_DELIVERY']);
+                const [{ count }] = await sql`
+                    SELECT count(*) FROM orders 
+                    WHERE assigned_to_delivery_boy_id = ${db.id} 
+                    AND status IN ('ASSIGNED', 'ACCEPTED_FOR_DELIVERY', 'OUT_FOR_DELIVERY')
+                `;
 
                 return {
                     ...db,
-                    active_deliveries: count || 0
+                    active_deliveries: Number(count) || 0
                 };
             })
         );

@@ -1,45 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase';
+import sql from '@/lib/db';
 
 export async function POST(
     request: NextRequest,
-    { params }: { params: Promise<{ orderId: string }> }
+    context: { params: Promise<{ orderId: string }> }
 ) {
     try {
-        const { orderId } = await params;
+        const { orderId } = await context.params;
         const { deliveryBoyId } = await request.json();
 
         if (!deliveryBoyId) {
-            return NextResponse.json(
-                { error: 'Delivery boy ID is required' },
-                { status: 400 }
-            );
+            return NextResponse.json({ error: 'Delivery boy ID is required' }, { status: 400 });
         }
 
-        // Update order status and assign delivery boy
-        const { data: order, error } = await supabaseAdmin
-            .from('orders')
-            .update({
-                status: 'ASSIGNED',
-                assigned_to_delivery_boy_id: deliveryBoyId,
-                assigned_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', orderId)
-            .eq('status', 'PENDING_DELIVERY')
-            .select()
-            .single();
-
-        if (error) {
-            console.error('Error assigning order:', error);
-            throw error;
-        }
+        const [order] = await sql`
+            UPDATE orders SET 
+                status = 'ASSIGNED',
+                assigned_to_delivery_boy_id = ${deliveryBoyId},
+                assigned_at = ${new Date().toISOString()},
+                updated_at = ${new Date().toISOString()}
+            WHERE id = ${orderId} AND status = 'PENDING_DELIVERY'
+            RETURNING *
+        `;
 
         if (!order) {
-            return NextResponse.json(
-                { error: 'Order not found or already assigned' },
-                { status: 404 }
-            );
+            return NextResponse.json({ error: 'Order not found or already assigned' }, { status: 404 });
         }
 
         return NextResponse.json({ success: true, order });

@@ -42,8 +42,8 @@ export default async function MarketplaceLayout({
     <>
       <Navbar 
         userName={user ? `${user.given_name || ''} ${user.family_name || ''}`.trim() || user.email || 'Guest' : undefined} 
-        userImage={user?.picture || undefined}
-        isAuthenticated={authenticated}
+        userImage={user?.picture ?? undefined}
+        isAuthenticated={!!authenticated}
       />
       {children}
     </>

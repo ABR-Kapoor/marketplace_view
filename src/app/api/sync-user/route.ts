@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
-import { createClient } from '@/utils/supabase/server';
+import sql from '@/lib/db';
 
 export async function GET(request: NextRequest) {
     try {
@@ -15,63 +15,24 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'User not found' }, { status: 401 });
         }
 
-        const supabase = await createClient();
-
-        // Check if user exists in database
-        const { data: existingUser, error: fetchError } = await supabase
-            .from('users')
-            .select('*')
-            .eq('auth_id', kindeUser.id)
-            .single();
-
-        if (fetchError && fetchError.code !== 'PGRST116') {
-            console.error('Error fetching user:', fetchError);
-            return NextResponse.json({ error: 'Database error' }, { status: 500 });
-        }
+        const [existingUser] = await sql`SELECT * FROM users WHERE auth_id = ${kindeUser.id}`;
 
         if (existingUser) {
-            // Check if user is a patient
             if (existingUser.role !== 'patient') {
                 return NextResponse.json({ error: 'Access denied: User is not a patient' }, { status: 403 });
             }
 
-            // Update last login
-            await supabase
-                .from('users')
-                .update({
-                    last_login: new Date().toISOString(),
-                })
-                .eq('uid', existingUser.uid);
+            await sql`UPDATE users SET last_login = ${new Date().toISOString()} WHERE uid = ${existingUser.uid}`;
 
             return NextResponse.json({ user: existingUser });
         } else {
-            // Auto-create patient user for marketplace
             console.log('User not found in DB, creating new patient account...', kindeUser.email);
 
-            // 1. Create User with role 'patient'
-            const { data: newUser, error: createUserError } = await supabase
-                .from('users')
-                .insert({
-                    auth_id: kindeUser.id,
-                    email: kindeUser.email,
-                    name: `${kindeUser.given_name || ''} ${kindeUser.family_name || ''}`.trim() || kindeUser.email,
-                    role: 'patient',
-                    is_active: true,
-                    is_verified: true,
-                    phone: kindeUser.phone_number || null,
-                    profile_image_url: kindeUser.picture || null,
-                    updated_at: new Date().toISOString(),
-                })
-                .select()
-                .single();
-
-            if (createUserError) {
-                console.error('Error creating user:', createUserError);
-                return NextResponse.json({ error: 'Failed to create user account' }, { status: 500 });
-            }
-
-            // 2. Create Patient Profile (will be auto-created by trigger, but we can verify)
-            // The database trigger should handle this automatically
+            const [newUser] = await sql`
+                INSERT INTO users (auth_id, email, name, role, is_active, is_verified, phone, profile_image_url, updated_at)
+                VALUES (${kindeUser.id}, ${kindeUser.email}, ${`${kindeUser.given_name || ''} ${kindeUser.family_name || ''}`.trim() || kindeUser.email}, 'patient', true, true, ${kindeUser.phone_number || null}, ${kindeUser.picture || null}, ${new Date().toISOString()})
+                RETURNING *
+            `;
 
             return NextResponse.json({ user: newUser });
         }

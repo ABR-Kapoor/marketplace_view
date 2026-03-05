@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import sql from '@/lib/db';
 
 export async function POST(req: NextRequest) {
     try {
@@ -13,7 +13,6 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Missing required parameters" }, { status: 400 });
         }
 
-        // 1. Verify Signature
         const bodyStr = razorpay_order_id + "|" + razorpay_payment_id;
         const expectedSignature = crypto
             .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
@@ -26,83 +25,53 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
         }
 
-        // 2. Update Finance Transaction (Mark as paid)
-        const { data: txData, error: txError } = await supabaseAdmin
-            .from("finance_transactions")
-            .update({
-                status: "paid",
-                paid_at: new Date().toISOString(),
-                razorpay_payment_id,
-                razorpay_signature,
-                payment_method: "razorpay"
-            })
-            .eq("razorpay_order_id", razorpay_order_id)
-            .select()
-            .single();
+        const [txData] = await sql`
+            UPDATE finance_transactions SET 
+                status = 'paid', 
+                paid_at = ${new Date().toISOString()}, 
+                razorpay_payment_id = ${razorpay_payment_id}, 
+                razorpay_signature = ${razorpay_signature}, 
+                payment_method = 'razorpay'
+            WHERE razorpay_order_id = ${razorpay_order_id}
+            RETURNING *
+        `;
 
-        if (txError) {
-            console.error("Error updating transaction:", txError);
-            return NextResponse.json({ error: "Failed to update transaction" }, { status: 500 });
+        if (!txData) {
+            console.error("Warning: Transaction not found to update.");
         }
 
-        // 3. Update Order Status to PENDING_DELIVERY and set paid
-        const { data: orderData, error: orderError } = await supabaseAdmin
-            .from("orders")
-            .update({
-                status: "PENDING_DELIVERY", // Crucial for Admin visibility
-                updated_at: new Date().toISOString()
-                // We could store payment info here too if schema supported it
-            })
-            .eq("id", order_id)
-            .select()
-            .single();
+        const [orderData] = await sql`
+            UPDATE orders SET 
+                status = 'PENDING_DELIVERY', 
+                updated_at = ${new Date().toISOString()}
+            WHERE id = ${order_id}
+            RETURNING *
+        `;
 
-        if (orderError) {
-            console.error("Error updating order status:", orderError);
-            return NextResponse.json({ error: "Failed to update order status" }, { status: 500 });
+        if (!orderData) {
+            return NextResponse.json({ error: "Order not found" }, { status: 500 });
         }
 
-        // 4. Clear User's Cart
-        if (orderData && orderData.user_id) {
-            const { data: cartData } = await supabaseAdmin
-                .from('carts')
-                .select('id')
-                .eq('user_id', orderData.user_id)
-                .single();
+        const [cartData] = await sql`SELECT id FROM carts WHERE user_id = ${orderData.user_id}`;
 
-            if (cartData) {
-                const { error: clearCartError } = await supabaseAdmin
-                    .from('cart_items')
-                    .delete()
-                    .eq('cart_id', cartData.id);
-
-                if (clearCartError) {
-                    console.error("Error clearing cart:", clearCartError);
-                } else {
-                    console.log("Cart cleared for user:", orderData.user_id);
-                }
-            }
+        if (cartData) {
+            await sql`DELETE FROM cart_items WHERE cart_id = ${cartData.id}`;
+            console.log("Cart cleared for user:", orderData.user_id);
         }
 
-        // 5. Generate Receipt
-        // Fallback for PID/DID if transaction doesn't have them populated correctly or needing lookup
-        // But txData has PID.
         if (txData) {
-            const { error: receiptError } = await supabaseAdmin
-                .from("receipts")
-                .insert({
-                    transaction_id: txData.transaction_id,
-                    pid: txData.pid,
-                    did: txData.did || txData.pid, // Fallback
-                    patient_name: "Patient", // Should fetch name ideally
-                    doctor_name: "AuraMart Marketplace",
-                    consultation_fee: txData.amount, // Using amount as fee for now
-                    total_amount: txData.amount,
-                    payment_method: "razorpay",
-                    razorpay_payment_id: razorpay_payment_id
-                });
-
-            if (receiptError) {
+            try {
+                await sql`
+                    INSERT INTO receipts (
+                        transaction_id, pid, did, patient_name, doctor_name, 
+                        consultation_fee, total_amount, payment_method, razorpay_payment_id
+                    ) VALUES (
+                        ${txData.transaction_id}, ${txData.pid}, ${txData.did || txData.pid}, 
+                        'Patient', 'AuraMart Marketplace', ${txData.amount}, ${txData.amount}, 
+                        'razorpay', ${razorpay_payment_id}
+                    )
+                `;
+            } catch (receiptError) {
                 console.error("Error creating receipt:", receiptError);
             }
         }
