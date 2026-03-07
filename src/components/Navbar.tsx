@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { ShoppingCart, LogOut, User, Menu, X, ClipboardList } from 'lucide-react'
 import { LogoutLink } from "@kinde-oss/kinde-auth-nextjs/components";
 
-export function Navbar({ cartCount = 0, userName, userImage, isAuthenticated = false }: { cartCount?: number; userName?: string; userImage?: string | null; isAuthenticated?: boolean }) {
+export function Navbar({ cartCount = 0, userName, userImage, isAuthenticated = false, onProfileClick }: { cartCount?: number; userName?: string; userImage?: string | null; isAuthenticated?: boolean; onProfileClick?: () => void }) {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
     return (
@@ -24,9 +24,11 @@ export function Navbar({ cartCount = 0, userName, userImage, isAuthenticated = f
                 {/* Desktop Menu */}
                 <div className="hidden md:flex items-center gap-6 lg:gap-8">
                     {isAuthenticated && (
-                        <Link href="/marketplace/orders" className="text-sm font-semibold text-gray-700 hover:text-emerald-700 transition-colors">
-                            My Orders
-                        </Link>
+                        <>
+                            <Link href="/marketplace/orders" className="text-sm font-semibold text-gray-700 hover:text-emerald-700 transition-colors">
+                                My Orders
+                            </Link>
+                        </>
                     )}
                     <Link href="/marketplace/cart" className="relative p-2 text-gray-700 hover:text-emerald-700 hover:bg-emerald-50 rounded-full transition-all group">
                         <ShoppingCart className="h-6 w-6 group-hover:scale-110 transition-transform" />
@@ -39,14 +41,18 @@ export function Navbar({ cartCount = 0, userName, userImage, isAuthenticated = f
                     {isAuthenticated ? (
                         <>
                             {userName && (
-                                <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-emerald-100 rounded-full shadow-sm">
+                                <button
+                                    onClick={onProfileClick}
+                                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-emerald-100 rounded-full shadow-sm hover:shadow-md hover:border-emerald-300 transition-all cursor-pointer group"
+                                    title="Edit Profile"
+                                >
                                     {userImage ? (
-                                        <img src={userImage} alt={userName} className="h-6 w-6 rounded-full object-cover border border-emerald-200" />
+                                        <img src={userImage} alt={userName} className="h-6 w-6 rounded-full object-cover border border-emerald-200 group-hover:border-emerald-400 transition-colors" />
                                     ) : (
                                         <User className="h-4 w-4 text-emerald-600" />
                                     )}
                                     <span className="text-sm font-bold text-gray-800 max-w-[100px] truncate">{userName}</span>
-                                </div>
+                                </button>
                             )}
                             <LogoutLink
                                 className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
@@ -93,20 +99,26 @@ export function Navbar({ cartCount = 0, userName, userImage, isAuthenticated = f
                      {isAuthenticated ? (
                         <>
                             {userName && (
-                                <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-xl">
+                                <button
+                                    onClick={() => {
+                                        onProfileClick?.();
+                                        setIsMenuOpen(false);
+                                    }}
+                                    className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl hover:from-emerald-100 hover:to-teal-100 transition-all cursor-pointer w-full text-left"
+                                >
                                     {userImage ? (
                                         <img src={userImage} alt={userName} className="h-8 w-8 rounded-full object-cover border border-emerald-200" />
                                     ) : (
                                         <User className="h-5 w-5 text-emerald-600" />
                                     )}
                                     <div className="flex flex-col">
-                                        <span className="text-xs text-gray-500 uppercase tracking-widest font-bold">Signed in as</span>
+                                        <span className="text-xs text-gray-500 uppercase tracking-widest font-bold">Edit Profile</span>
                                         <span className="text-sm font-bold text-gray-900">{userName}</span>
                                     </div>
-                                </div>
+                                </button>
                             )}
-                            <Link 
-                                href="/marketplace/orders" 
+                            <Link
+                                href="/marketplace/orders"
                                 className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl font-semibold transition-colors"
                                 onClick={() => setIsMenuOpen(false)}
                             >

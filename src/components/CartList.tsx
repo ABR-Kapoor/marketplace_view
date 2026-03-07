@@ -37,8 +37,6 @@ export function CartList({ initialCart }: { initialCart: Cart | null }) {
     }
 
     const subtotal = cart?.items.reduce((acc, item) => acc + (item.medicine?.price || 0) * item.quantity, 0) || 0
-    const tax = subtotal * 0.05
-    const total = subtotal + tax
 
     if (!cart || cart.items.length === 0) {
         return (
@@ -102,18 +100,10 @@ export function CartList({ initialCart }: { initialCart: Cart | null }) {
                     <h3 className="text-lg font-bold text-gray-900 mb-4">Order Summary</h3>
 
                     <div className="space-y-3 mb-6">
-                        <div className="flex justify-between text-gray-600">
-                            <span>Subtotal</span>
-                            <span>₹{subtotal.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-gray-600">
-                            <span>Tax (5%)</span>
-                            <span>₹{tax.toFixed(2)}</span>
-                        </div>
-                        <div className="h-px bg-gray-100 my-4"></div>
+                        <div className="h-px bg-gray-100 my-2"></div>
                         <div className="flex justify-between text-xl font-bold text-gray-900">
                             <span>Total</span>
-                            <span className="text-emerald-600">₹{total.toFixed(2)}</span>
+                            <span className="text-emerald-600">₹{subtotal.toFixed(2)}</span>
                         </div>
                     </div>
 

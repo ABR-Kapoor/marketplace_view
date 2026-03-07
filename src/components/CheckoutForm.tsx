@@ -11,9 +11,9 @@ declare global {
   }
 }
 
-export function CheckoutForm({ total }: { total: number }) {
+export function CheckoutForm({ total, savedAddress = '' }: { total: number; savedAddress?: string }) {
     const [loading, setLoading] = useState(false)
-    const [address, setAddress] = useState('')
+    const [address, setAddress] = useState(savedAddress)
     const router = useRouter()
 
     const loadRazorpay = () => {
@@ -42,8 +42,8 @@ export function CheckoutForm({ total }: { total: number }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     amount: total,
+                    shipping_address: address,
                     description: `Payment for Order`,
-                    // items: ... passed from cart if needed
                 }),
             })
 

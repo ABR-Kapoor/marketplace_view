@@ -13,6 +13,15 @@ export async function POST(req: NextRequest) {
 
         const user = await syncUserToDatabase(kindeUser as any);
 
+        // Check if user is delivery_boy and block them
+        const [userData] = await sql`
+            SELECT role FROM users WHERE auth_id = ${user.uid}
+        `;
+
+        if (userData?.role === 'delivery_boy') {
+            return NextResponse.json({ error: "Delivery staff cannot make purchases" }, { status: 403 });
+        }
+
         const body = await req.json();
         const { shipping_address } = body;
 
@@ -54,7 +63,7 @@ export async function POST(req: NextRequest) {
         // 4. Create Order in DB (orders table)
         const [dbOrder] = await sql`
             INSERT INTO orders (user_id, status, total_amount, shipping_address, customer_name, customer_phone)
-            VALUES (${user.uid}, 'pending', ${totalAmount}, ${shipping_address || {}}, ${user.name}, ${user.phone})
+            VALUES (${user.uid}, 'pending', ${totalAmount}, ${shipping_address || {}}, ${user.name || 'Customer'}, ${user.phone || null})
             RETURNING *
         `;
 
@@ -70,28 +79,26 @@ export async function POST(req: NextRequest) {
             `;
         }
 
-        // 6. Create Transaction in DB
+        // 6. Create Transaction in DB (optional - only if patient record exists)
         const [patientData] = await sql`SELECT pid FROM patients WHERE uid = ${user.uid}`;
 
-        if (!patientData) {
-            return NextResponse.json({ error: "Patient record not found" }, { status: 500 });
-        }
-
-        try {
-            await sql`
-                INSERT INTO finance_transactions (
-                    pid, transaction_type, amount, currency, status, 
-                    razorpay_order_id, description
-                ) VALUES (
-                    ${patientData.pid}, 'consultation', ${totalAmount}, 'INR', 'pending', 
-                    ${razorpayOrder.id}, ${`Marketplace Order #${dbOrder.order_number || dbOrder.id}`}
-                )
-            `;
-        } catch (txInsertError: any) {
-            if (txInsertError.code === '23505') {
-                console.warn("Transaction already exists for this order, continuing.");
-            } else {
-                console.error("Error creating transaction:", txInsertError);
+        if (patientData) {
+            try {
+                await sql`
+                    INSERT INTO finance_transactions (
+                        pid, transaction_type, amount, currency, status,
+                        razorpay_order_id, description
+                    ) VALUES (
+                        ${patientData.pid}, 'payment', ${totalAmount}, 'INR', 'pending',
+                        ${razorpayOrder.id}, ${`Marketplace Order #${dbOrder.order_number || dbOrder.id}`}
+                    )
+                `;
+            } catch (txInsertError: any) {
+                if (txInsertError.code === '23505') {
+                    console.warn("Transaction already exists for this order, continuing.");
+                } else {
+                    console.error("Error creating transaction:", txInsertError);
+                }
             }
         }
 

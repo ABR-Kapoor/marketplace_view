@@ -1,34 +1,25 @@
 'use client'
 
-import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 
+// Uses polling every 5 seconds to detect medicine inventory changes.
+// Replaces the old Supabase postgres_changes realtime subscription
+// since Nhost Postgres doesn't use the Supabase Realtime protocol.
+// For true push-based realtime, Hasura GraphQL Subscriptions can be
+// configured here in the future using graphql-ws.
+
 export function RealtimeMedicines() {
     const router = useRouter()
-    const supabase = createClient()
 
     useEffect(() => {
-        const channel = supabase
-            .channel('realtime-medicines')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'medicines',
-                },
-                (payload) => {
-                    console.log('[Realtime] Database change detected:', payload.eventType)
-                    router.refresh()
-                }
-            )
-            .subscribe()
+        // Poll every 5 seconds to keep medicine list fresh
+        const interval = setInterval(() => {
+            router.refresh()
+        }, 5000)
 
-        return () => {
-            supabase.removeChannel(channel)
-        }
-    }, [router, supabase])
+        return () => clearInterval(interval)
+    }, [router])
 
     return null
 }

@@ -1,4 +1,4 @@
-import { createClient } from '@/utils/supabase/server'
+import sql from '@/lib/db'
 import { CartList } from '@/components/CartList'
 import { redirect } from 'next/navigation'
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
@@ -13,34 +13,37 @@ export default async function CartPage() {
         redirect('/api/auth/login')
     }
 
-    const supabase = await createClient()
-    
     // Fetch internal user ID
-    const { data: user } = await supabase
-        .from('users')
-        .select('uid')
-        .eq('auth_id', kindeUser.id)
-        .single();
+    const [user] = await sql`
+        SELECT uid FROM users WHERE auth_id = ${kindeUser.id}
+    `;
     
     if (!user) {
          redirect('/auth-callback')
     }
 
-    const { data: cart } = await supabase
-        .from('carts')
-        .select('*, items:cart_items(*, medicine:medicines(*))')
-        .eq('user_id', user.uid)
-        .single()
+    const [cartData] = await sql`
+        SELECT * FROM carts WHERE user_id = ${user.uid}
+    `;
 
-    // Sort items by name nicely
-    if (cart?.items) {
-        cart.items.sort((a: any, b: any) => a.medicine.name.localeCompare(b.medicine.name))
+    let cart = null;
+    if (cartData) {
+        const items = await sql`
+            SELECT ci.*, row_to_json(m.*) as medicine
+            FROM cart_items ci
+            JOIN medicines m ON ci.medicine_id = m.id
+            WHERE ci.cart_id = ${cartData.id}
+        `;
+        cart = {
+            ...cartData,
+            items: items.sort((a: any, b: any) => a.medicine.name.localeCompare(b.medicine.name))
+        };
     }
 
     return (
         <div className="max-w-6xl mx-auto">
             <h1 className="text-3xl font-bold text-gray-900 mb-8">Shopping Cart</h1>
-            <CartList initialCart={cart} />
+            <CartList initialCart={cart as any} />
         </div>
     )
 }

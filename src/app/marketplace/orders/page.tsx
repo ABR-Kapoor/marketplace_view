@@ -1,4 +1,4 @@
-import { createClient } from '@/utils/supabase/server'
+import sql from '@/lib/db'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Package, Calendar, MapPin } from 'lucide-react'
@@ -15,24 +15,33 @@ export default async function OrdersPage() {
         redirect('/api/auth/login')
     }
 
-    const supabase = await createClient()
-    
     // Fetch internal user ID
-    const { data: user } = await supabase
-        .from('users')
-        .select('uid')
-        .eq('auth_id', kindeUser.id)
-        .single();
+    const [user] = await sql`
+        SELECT uid FROM users WHERE auth_id = ${kindeUser.id}
+    `;
     
     if (!user) {
          redirect('/auth-callback')
     }
 
-    const { data: orders } = await supabase
-        .from('orders')
-        .select('*, items:order_items(*, medicine:medicines(*))')
-        .eq('user_id', user.uid)
-        .order('created_at', { ascending: false })
+    const rawOrders = await sql`
+        SELECT * FROM orders 
+        WHERE user_id = ${user.uid}
+        ORDER BY created_at DESC
+    `;
+
+    const orders = await Promise.all(rawOrders.map(async (order: any) => {
+        const items = await sql`
+            SELECT oi.*, row_to_json(m.*) as medicine
+            FROM order_items oi
+            JOIN medicines m ON oi.medicine_id = m.id
+            WHERE oi.order_id = ${order.id}
+        `;
+        return {
+            ...order,
+            items
+        };
+    }));
 
     return (
         <div className="max-w-5xl mx-auto space-y-8">

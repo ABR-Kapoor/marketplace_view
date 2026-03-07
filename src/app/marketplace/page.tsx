@@ -23,13 +23,13 @@ export default async function MarketplacePage(props: {
         console.log(`[Page] Attempting keyword search for: ${q}`);
         // Basic ILIKE search instead of RPC
         const fuzzyData = await sql`SELECT * FROM medicines WHERE name ILIKE ${'%' + q + '%'}`;
-        
+
         if (fuzzyData && fuzzyData.length > 0) {
              console.log(`[Page] Search successful. Found ${fuzzyData.length} matches.`);
              if (category && category !== 'All') {
-                 medicines = fuzzyData.filter((m: any) => m.category === category);
+                 medicines = fuzzyData.filter((m: any) => m.category === category) as any[];
              } else {
-                 medicines = fuzzyData;
+                 medicines = fuzzyData as any[];
              }
         }
     }
@@ -39,15 +39,15 @@ export default async function MarketplacePage(props: {
         console.log(`[Page] Fetching medicines... q=${q}, category=${category}`);
         if (category && category !== 'All') {
             if (q) {
-                medicines = await sql`SELECT * FROM medicines WHERE category = ${category} AND name ILIKE ${'%' + q + '%'} ORDER BY name ASC`;
+                medicines = (await sql`SELECT * FROM medicines WHERE category = ${category} AND name ILIKE ${'%' + q + '%'} ORDER BY name ASC`) as any[];
             } else {
-                medicines = await sql`SELECT * FROM medicines WHERE category = ${category} ORDER BY name ASC`;
+                medicines = (await sql`SELECT * FROM medicines WHERE category = ${category} ORDER BY name ASC`) as any[];
             }
         } else {
             if (q) {
-                medicines = await sql`SELECT * FROM medicines WHERE name ILIKE ${'%' + q + '%'} ORDER BY name ASC`;
+                medicines = (await sql`SELECT * FROM medicines WHERE name ILIKE ${'%' + q + '%'} ORDER BY name ASC`) as any[];
             } else {
-                medicines = await sql`SELECT * FROM medicines ORDER BY name ASC`;
+                medicines = (await sql`SELECT * FROM medicines ORDER BY name ASC`) as any[];
             }
         }
     }
